@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>InkCluster — Fixed · Adaptive · Hierarchical</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d0d0f;--surface:#141418;--border:#242428;--border2:#2e2e35;
+  --text:#e8e6e0;--muted:#5a5a68;--dim:#2a2a32;
+  --c1:#00d4aa;--c1d:rgba(0,212,170,0.08);
+  --c2:#ff6b35;--c2d:rgba(255,107,53,0.08);
+  --c3:#7c6cff;--c3d:rgba(124,108,255,0.08);
+  --warn:#ffd166;--mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans',sans-serif;
+}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);height:100vh;overflow:hidden;display:flex;flex-direction:column}
+
+/* TOP BAR */
+.bar{display:flex;align-items:center;padding:0 14px;height:44px;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0;gap:0;user-select:none;overflow-x:auto}
+.bar::-webkit-scrollbar{display:none}
+.logo{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--c1);letter-spacing:.12em;margin-right:18px;display:flex;align-items:center;gap:6px;white-space:nowrap;flex-shrink:0}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--c1);box-shadow:0 0 7px var(--c1);animation:p 2s ease-in-out infinite}
+@keyframes p{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
+.div{width:1px;height:20px;background:var(--border);margin:0 10px;flex-shrink:0}
+.sp{flex:1}
+.tg{display:flex;gap:3px;flex-shrink:0}
+.b{font-family:var(--mono);font-size:10px;letter-spacing:.07em;padding:4px 11px;border:1px solid var(--border2);background:transparent;color:var(--muted);border-radius:3px;cursor:pointer;transition:all .15s;text-transform:uppercase;white-space:nowrap}
+.b:hover{border-color:var(--text);color:var(--text)}
+.b.on{background:var(--c1d);border-color:var(--c1);color:var(--c1)}
+.b.g1{border-color:var(--c1);color:var(--c1)}.b.g1:hover{background:var(--c1);color:var(--bg)}
+.b.g2{border-color:var(--c2);color:var(--c2)}.b.g2:hover{background:var(--c2);color:var(--bg)}
+.b.g3{border-color:var(--c3);color:var(--c3)}.b.g3:hover{background:var(--c3);color:var(--bg)}
+.b.gw{border-color:var(--warn);color:var(--warn)}.b.gw:hover{background:var(--warn);color:var(--bg)}
+.b.dr:hover{border-color:#f44;color:#f44}
+.sw{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.sl{font-family:var(--mono);font-size:10px;color:var(--muted);white-space:nowrap}
+.sv{font-family:var(--mono);font-size:10px;min-width:30px}
+.sv1{color:var(--c1)}.sv2{color:var(--c2)}.sv3{color:var(--c3)}
+input[type=range]{-webkit-appearance:none;width:72px;height:3px;background:var(--border2);border-radius:2px;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:10px;height:10px;border-radius:50%;cursor:pointer}
+.r1::-webkit-slider-thumb{background:var(--c1);box-shadow:0 0 4px var(--c1)}
+.r2::-webkit-slider-thumb{background:var(--c2);box-shadow:0 0 4px var(--c2)}
+.r3::-webkit-slider-thumb{background:var(--c3);box-shadow:0 0 4px var(--c3)}
+.pill{font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:3px;background:var(--dim);color:var(--muted);margin-left:4px;flex-shrink:0}
+.pill span{color:var(--text);font-weight:500}
+
+/* MAIN */
+.main{display:flex;flex:1;overflow:hidden}
+.cvs{flex:1;display:flex;overflow:hidden}
+
+/* PANES */
+.pane{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.pane+.pane{border-left:2px solid var(--border)}
+.ph{height:30px;display:flex;align-items:center;padding:0 12px;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0;gap:8px}
+.pt{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase}
+.pt1{color:var(--c1)}.pt2{color:var(--c2)}.pt3{color:var(--c3)}
+.pb{font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:2px;letter-spacing:.05em;margin-left:auto}
+.pb1{background:var(--c1d);color:var(--c1);border:1px solid rgba(0,212,170,.2)}
+.pb2{background:var(--c2d);color:var(--c2);border:1px solid rgba(255,107,53,.2)}
+.pb3{background:var(--c3d);color:var(--c3);border:1px solid rgba(124,108,255,.2)}
+.cw{flex:1;position:relative;overflow:hidden;cursor:crosshair}
+canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.mb{position:absolute;top:9px;left:9px;font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;padding:2px 8px;border-radius:2px;pointer-events:none}
+.mb.draw{background:rgba(0,212,170,.1);color:var(--c1);border:1px solid rgba(0,212,170,.2)}
+.mb.pan{background:rgba(255,107,53,.1);color:var(--c2);border:1px solid rgba(255,107,53,.2)}
+.help{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;transition:opacity .4s}
+.hb{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.1em;margin-bottom:5px}
+.hs{font-family:var(--mono);font-size:10px;color:var(--border2);letter-spacing:.07em}
+
+/* PANEL */
+.panel{width:230px;border-left:1px solid var(--border);background:var(--surface);display:flex;flex-direction:column;overflow:hidden;flex-shrink:0}
+.ps{border-bottom:1px solid var(--border);padding:11px 13px}
+.ptl{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:9px;display:flex;align-items:center;gap:5px}
+.ptl::after{content:'';flex:1;height:1px;background:var(--border)}
+.cr{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-bottom:8px}
+.cc{border-radius:3px;padding:7px 8px}
+.cc1{background:var(--c1d);border:1px solid rgba(0,212,170,.15)}
+.cc2{background:var(--c2d);border:1px solid rgba(255,107,53,.15)}
+.cc3{background:var(--c3d);border:1px solid rgba(124,108,255,.15)}
+.cl{font-family:var(--mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:3px}
+.cl1{color:var(--c1)}.cl2{color:var(--c2)}.cl3{color:var(--c3)}
+.cv_{font-family:var(--mono);font-size:17px;font-weight:600}
+.cv1{color:var(--c1)}.cv2{color:var(--c2)}.cv3{color:var(--c3)}
+.cs{font-family:var(--mono);font-size:9px;color:var(--muted);margin-top:1px}
+.mr{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+.mk{font-family:var(--mono);font-size:10px;color:var(--muted)}
+.mv{font-family:var(--mono);font-size:11px;font-weight:500}
+.mv1{color:var(--c1)}.mv2{color:var(--c2)}.mv3{color:var(--c3)}.mvn{color:var(--text)}
+
+/* HIERARCHY LEGEND */
+.leg{display:flex;flex-direction:column;gap:4px;margin-bottom:8px}
+.lr{display:flex;align-items:center;gap:8px;padding:5px 7px;border-radius:3px;font-family:var(--mono);font-size:10px}
+.lr1{background:var(--c1d);color:var(--c1)}.lr2{background:var(--c2d);color:var(--c2)}.lr3{background:var(--c3d);color:var(--c3)}
+.ld{width:8px;height:8px;border-radius:2px;flex-shrink:0}
+.la{margin-left:auto;font-size:9px;color:var(--muted)}
+
+/* PIPE */
+.pipe{display:flex;flex-direction:column;gap:2px}
+.ps_{display:flex;align-items:center;gap:6px;padding:4px 6px;border-radius:3px;font-family:var(--mono);font-size:10px;color:var(--muted);transition:all .2s}
+.ps_.done{color:var(--text);background:var(--dim)}
+.ps_.a1{color:var(--c1);background:var(--c1d)}
+.ps_.a2{color:var(--c2);background:var(--c2d)}
+.ps_.a3{color:var(--c3);background:var(--c3d)}
+.pi{width:5px;height:5px;border-radius:50%;background:var(--border2);flex-shrink:0}
+.ps_.done .pi{background:var(--text)}
+.ps_.a1 .pi{background:var(--c1);box-shadow:0 0 4px var(--c1)}
+.ps_.a2 .pi{background:var(--c2);box-shadow:0 0 4px var(--c2)}
+.ps_.a3 .pi{background:var(--c3);box-shadow:0 0 4px var(--c3)}
+.pa{font-size:8px;color:var(--border2);padding-left:11px}
+
+.clist{flex:1;overflow-y:auto;padding:5px}
+.clist::-webkit-scrollbar{width:3px}
+.clist::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.ci{display:flex;align-items:center;gap:7px;padding:5px 7px;border-radius:3px;margin-bottom:2px;font-family:var(--mono);font-size:10px}
+.csw{width:7px;height:7px;border-radius:2px;flex-shrink:0}
+.cct{font-size:9px;color:var(--muted);margin-left:auto}
+
+.stbar{height:25px;border-top:1px solid var(--border);background:var(--bg);display:flex;align-items:center;padding:0 12px;gap:12px;flex-shrink:0}
+.sti{font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:.06em}
+.sti b{color:var(--text);font-weight:500}
+
+.toast{position:fixed;bottom:34px;left:50%;transform:translateX(-50%) translateY(14px);background:var(--c1);color:var(--bg);font-family:var(--mono);font-size:10px;font-weight:500;padding:6px 16px;border-radius:3px;opacity:0;transition:all .2s;pointer-events:none;z-index:100}
+.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <div class="logo"><div class="dot"></div>InkCluster</div>
+  <div class="div"></div>
+  <div class="tg">
+    <button class="b on" id="bDraw" onclick="setMode('draw')">✏ Draw</button>
+    <button class="b"    id="bPan"  onclick="setMode('pan')">✥ Pan</button>
+  </div>
+  <div class="div"></div>
+  <div class="tg">
+    <button class="b g1" onclick="runFixed()">⬡ Fixed ε</button>
+    <button class="b g2" onclick="runAdaptive()">⬡ Adaptive</button>
+    <button class="b g3" onclick="runHier()">⬡ Hierarchical</button>
+    <button class="b gw" onclick="runAll()">⬡ All Three</button>
+  </div>
+  <div class="div"></div>
+  <div class="tg">
+    <button class="b" onclick="addUniform()">⊕ Uniform</button>
+    <button class="b" onclick="addScaleVar()">⊕ Scale Variant</button>
+    <button class="b dr" onclick="clearAll()">⊘ Clear</button>
+  </div>
+  <div class="div"></div>
+  <div class="sw">
+    <span class="sl">ε</span>
+    <input type="range" class="r1" id="sEps" min="15" max="250" value="60" oninput="updEps()">
+    <span class="sv sv1" id="vEps">60px</span>
+  </div>
+  <div class="sw" style="margin-left:8px">
+    <span class="sl">α</span>
+    <input type="range" class="r2" id="sAlpha" min="5" max="35" value="15" oninput="updAlpha()">
+    <span class="sv sv2" id="vAlpha">1.5</span>
+  </div>
+  <div class="sw" style="margin-left:8px">
+    <span class="sl">α₁/α₂/α₃</span>
+    <input type="range" class="r3" id="sH1" min="5" max="30" value="15" oninput="updH()">
+    <span class="sv sv3" id="vH">1.5</span>
+  </div>
+  <div class="sp"></div>
+  <div class="pill">Strokes <span id="nStr">0</span></div>
+</div>
+
+<div class="main">
+  <div class="cvs">
+    <!-- PANE 1: FIXED -->
+    <div class="pane">
+      <div class="ph"><span class="pt pt1">Fixed ε</span><span class="pb pb1" id="badgeF">—</span></div>
+      <div class="cw" id="wF">
+        <canvas id="cvF"></canvas>
+        <div class="mb draw" id="mBadge">Draw Mode</div>
+        <div class="help" id="helpEl">
+          <div class="hb">Draw · then run All Three</div>
+          <div class="hs">Try ⊕ Scale Variant to see the differences</div>
+        </div>
+      </div>
+    </div>
+    <!-- PANE 2: ADAPTIVE -->
+    <div class="pane">
+      <div class="ph"><span class="pt pt2">Adaptive ε</span><span class="pb pb2" id="badgeA">—</span></div>
+      <div class="cw" id="wA"><canvas id="cvA"></canvas></div>
+    </div>
+    <!-- PANE 3: HIERARCHICAL -->
+    <div class="pane">
+      <div class="ph"><span class="pt pt3">Hierarchical</span><span class="pb pb3" id="badgeH">—</span></div>
+      <div class="cw" id="wH"><canvas id="cvH"></canvas></div>
+    </div>
+  </div>
+
+  <!-- PANEL -->
+  <div class="panel">
+    <div class="ps">
+      <div class="ptl">Comparison</div>
+      <div class="cr">
+        <div class="cc cc1"><div class="cl cl1">Fixed</div><div class="cv_ cv1" id="cF">—</div><div class="cs" id="csF">clusters</div></div>
+        <div class="cc cc2"><div class="cl cl2">Adaptive</div><div class="cv_ cv2" id="cA">—</div><div class="cs" id="csA">clusters</div></div>
+        <div class="cc cc3"><div class="cl cl3">Hier.</div><div class="cv_ cv3" id="cH">—</div><div class="cs" id="csH">phrases</div></div>
+      </div>
+      <div class="mr"><span class="mk">fixed time</span><span class="mv mv1" id="tF">—</span></div>
+      <div class="mr"><span class="mk">adapt time</span><span class="mv mv2" id="tA">—</span></div>
+      <div class="mr"><span class="mk">hier. time</span><span class="mv mv3" id="tH">—</span></div>
+    </div>
+
+    <div class="ps">
+      <div class="ptl">Hierarchy Legend</div>
+      <div class="leg">
+        <div class="lr lr3"><div class="ld" style="background:var(--c3)"></div>Phrase / Sentence<span class="la">level 3</span></div>
+        <div class="lr lr2"><div class="ld" style="background:var(--c2)"></div>Word<span class="la">level 2</span></div>
+        <div class="lr lr1"><div class="ld" style="background:var(--c1)"></div>Character<span class="la">level 1</span></div>
+      </div>
+      <div class="mr"><span class="mk">strokes</span><span class="mv mvn" id="mS">0</span></div>
+      <div class="mr"><span class="mk">fixed ε</span><span class="mv mv1" id="mE">60px</span></div>
+      <div class="mr"><span class="mk">adapt α</span><span class="mv mv2" id="mA">1.5</span></div>
+      <div class="mr"><span class="mk">hier α₁/α₂/α₃</span><span class="mv mv3" id="mH">1.5/1.5/2.0</span></div>
+    </div>
+
+    <div class="ps" style="padding-bottom:8px">
+      <div class="ptl">Pipeline</div>
+      <div class="pipe">
+        <div class="ps_" id="pR"><div class="pi"></div>Raw Strokes</div>
+        <div class="pa">↓</div>
+        <div class="ps_" id="pP"><div class="pi"></div>Preprocess</div>
+        <div class="pa">↓</div>
+        <div class="ps_" id="pK"><div class="pi"></div>KD-Tree</div>
+        <div class="pa">↓</div>
+        <div class="ps_" id="pD"><div class="pi"></div>DBSCAN fixed ε</div>
+        <div class="pa">↓</div>
+        <div class="ps_" id="pAd"><div class="pi"></div>Adaptive ε</div>
+        <div class="pa">↓</div>
+        <div class="ps_" id="pH1"><div class="pi"></div>Hier L1: chars</div>
+        <div class="pa">↓</div>
+        <div class="ps_" id="pH2"><div class="pi"></div>Hier L2: words</div>
+        <div class="pa">↓</div>
+        <div class="ps_" id="pH3"><div class="pi"></div>Hier L3: phrases</div>
+      </div>
+    </div>
+
+    <div class="ptl" style="padding:10px 13px 4px;font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)">Hier. Phrases</div>
+    <div class="clist" id="cList"><div style="font-family:var(--mono);font-size:10px;color:var(--muted);padding:8px;text-align:center">Run Hierarchical first</div></div>
+  </div>
+</div>
+
+<div class="stbar">
+  <div class="sti">Canvas <b>∞×∞</b></div>
+  <div class="sti">Zoom <b id="zLbl">100%</b></div>
+  <div class="sti">Cursor <b id="cLbl">—</b></div>
+  <div class="sti" style="margin-left:auto">L1: strokes→chars · L2: chars→words · L3: words→phrases</div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ── PALETTE ──
+const PAL=['#00d4aa','#ff6b35','#7c6cff','#ffd166','#ff4d8f','#4ecdc4','#a8ff78','#ff9f43','#ee5a24','#0abde3','#c56cf0','#f8b739','#26de81','#fd9644','#45aaf2','#fd79a8'];
+
+// ── STATE ──
+let strokes=[],cur=null,drawing=false,mode='draw';
+let eps=60,alpha=1.5,hAlpha=1.5;
+let sid=0;
+let lF=null,lA=null; // flat labels
+let hChars=null,hWords=null,hPhrases=null; // hierarchical
+let vpX=0,vpY=0,vpZ=1,pan=null;
+// Per-stroke cluster colors
+// Each stroke: {points,id,cF,cA,cH_char,cH_word,cH_phrase}
+
+const DPR=()=>window.devicePixelRatio||1;
+const cvF=document.getElementById('cvF'),ctF=cvF.getContext('2d');
+const cvA=document.getElementById('cvA'),ctA=cvA.getContext('2d');
+const cvH=document.getElementById('cvH'),ctH=cvH.getContext('2d');
+
+function CW(c){return c.width/DPR()} function CH(c){return c.height/DPR()}
+
+function rsz(cv,w){const d=DPR();cv.width=w.clientWidth*d;cv.height=w.clientHeight*d;cv.style.width=w.clientWidth+'px';cv.style.height=w.clientHeight+'px';cv.getContext('2d').scale(d,d)}
+function resize(){rsz(cvF,document.getElementById('wF'));rsz(cvA,document.getElementById('wA'));rsz(cvH,document.getElementById('wH'));draw()}
+window.addEventListener('resize',resize);
+
+const s2c=(sx,sy)=>({x:(sx-vpX)/vpZ,y:(sy-vpY)/vpZ});
+const c2s=(cx,cy)=>({x:cx*vpZ+vpX,y:cy*vpZ+vpY});
+
+function gp(e,cv){const r=cv.getBoundingClientRect(),s=e.touches?e.touches[0]:e;return{sx:s.clientX-r.left,sy:s.clientY-r.top}}
+
+function inp(cv){
+  cv.addEventListener('mousedown',e=>dn(e,cv));
+  cv.addEventListener('mousemove',e=>mv(e,cv));
+  cv.addEventListener('mouseup',up);
+  cv.addEventListener('mouseleave',up);
+  cv.addEventListener('touchstart',e=>{e.preventDefault();dn(e,cv)},{passive:false});
+  cv.addEventListener('touchmove', e=>{e.preventDefault();mv(e,cv)},{passive:false});
+  cv.addEventListener('touchend',  e=>{e.preventDefault();up()},{passive:false});
+  cv.addEventListener('wheel',e=>{
+    e.preventDefault();
+    const{sx,sy}=gp(e,cv),f=e.deltaY<0?1.1:0.9;
+    vpX=sx-(sx-vpX)*f;vpY=sy-(sy-vpY)*f;
+    vpZ=Math.max(.05,Math.min(10,vpZ*f));
+    document.getElementById('zLbl').textContent=Math.round(vpZ*100)+'%';draw();
+  },{passive:false});
+}
+inp(cvF);inp(cvA);inp(cvH);
+
+function dn(e,cv){
+  const{sx,sy}=gp(e,cv);
+  if(mode==='pan'){pan={sx,sy,vpX,vpY};return}
+  drawing=true;lF=lA=hChars=hWords=hPhrases=null;
+  cur={points:[s2c(sx,sy)]};
+  document.getElementById('helpEl').style.opacity='0';
+}
+function mv(e,cv){
+  const{sx,sy}=gp(e,cv),cp=s2c(sx,sy);
+  document.getElementById('cLbl').textContent=Math.round(cp.x)+','+Math.round(cp.y);
+  if(mode==='pan'&&pan){vpX=pan.vpX+(sx-pan.sx);vpY=pan.vpY+(sy-pan.sy);draw();return}
+  if(!drawing||!cur)return;
+  cur.points.push(cp);draw();
+}
+function up(){
+  if(mode==='pan'){pan=null;return}
+  if(!drawing)return;drawing=false;
+  if(cur&&cur.points.length>1){
+    strokes.push({points:cur.points,id:sid++,cF:'#e8e6e0',cA:'#e8e6e0',cHC:'#e8e6e0',cHW:'#e8e6e0',cHP:'#e8e6e0'});
+    updCount();pipe(['raw']);
+  }
+  cur=null;draw();
+}
+
+// ── ALGORITHMS ──
+function resamp(pts,n=32){
+  if(pts.length<2)return pts;
+  const d=[0];for(let i=1;i<pts.length;i++)d.push(d[i-1]+Math.hypot(pts[i].x-pts[i-1].x,pts[i].y-pts[i-1].y));
+  const T=d[d.length-1];if(!T)return pts;
+  return Array.from({length:n},(_,k)=>{
+    const t=(k/(n-1))*T;let i=d.findIndex(v=>v>=t);
+    if(i<=0)return pts[0];const u=(t-d[i-1])/(d[i]-d[i-1]+1e-9);
+    return{x:pts[i-1].x+u*(pts[i].x-pts[i-1].x),y:pts[i-1].y+u*(pts[i].y-pts[i-1].y)};
+  });
+}
+function smth(pts,w=2){return pts.map((_,i)=>{let sx=0,sy=0,c=0;for(let k=Math.max(0,i-w);k<=Math.min(pts.length-1,i+w);k++){sx+=pts[k].x;sy+=pts[k].y;c++;}return{x:sx/c,y:sy/c};})}
+function ctr(pts){const xs=pts.map(p=>p.x),ys=pts.map(p=>p.y);return{x:(Math.min(...xs)+Math.max(...xs))/2,y:(Math.min(...ys)+Math.max(...ys))/2}}
+function prep(pts){return smth(resamp(pts,32),2)}
+
+function nnEps(cs,a,k=1){
+  const n=cs.length;if(n<=k)return new Array(n).fill(15);
+  return cs.map((c,i)=>{
+    const ds=cs.map((o,j)=>j!==i?Math.hypot(o.x-c.x,o.y-c.y):Infinity).sort((a,b)=>a-b).slice(0,k);
+    return Math.max(8,a*ds.reduce((s,v)=>s+v,0)/ds.length);
+  });
+}
+
+function dbscan(cs,ea){
+  const n=cs.length,L=new Array(n).fill(-1),vis=new Array(n).fill(false);let cid=0;
+  const nb=i=>{const r=[];for(let j=0;j<n;j++){if(j===i)continue;if(Math.hypot(cs[j].x-cs[i].x,cs[j].y-cs[i].y)<=Math.min(ea[i],ea[j]))r.push(j);}return r;};
+  for(let i=0;i<n;i++){
+    if(vis[i])continue;vis[i]=true;const ns=nb(i);L[i]=cid;
+    const S=[...ns];for(let si=0;si<S.length;si++){const q=S[si];if(!vis[q]){vis[q]=true;nb(q).forEach(j=>{if(!S.includes(j)&&j!==q)S.push(j);});}if(L[q]===-1)L[q]=cid;}
+    cid++;
+  }
+  return L;
+}
+
+function dbscanFixed(cs,ep){
+  const n=cs.length,L=new Array(n).fill(-1);let cid=0;
+  const nb=i=>cs.map((_,j)=>j).filter(j=>Math.hypot(cs[j].x-cs[i].x,cs[j].y-cs[i].y)<=ep);
+  for(let i=0;i<n;i++){
+    if(L[i]!==-1)continue;const ns=nb(i);L[i]=cid;
+    const S=ns.filter(j=>j!==i);for(let si=0;si<S.length;si++){const q=S[si];if(L[q]===-1){L[q]=cid;nb(q).forEach(j=>{if(!S.includes(j)&&j!==q)S.push(j);});}}
+    cid++;
+  }
+  return L;
+}
+
+// ── ACTIONS ──
+async function runFixed(){
+  if(!strokes.length){toast('Draw some strokes first!');return}
+  pipe(['raw','prep']);await dl(80);
+  const cs=strokes.map(s=>ctr(prep(s.points)));
+  pipe(['raw','prep','kd']);await dl(80);
+  const t0=performance.now();
+  const ea=new Array(cs.length).fill(eps);
+  lF=dbscanFixed(cs,eps);
+  const tf=performance.now()-t0;
+  colFlat(lF,'cF');
+  const nc=new Set(lF).size;
+  document.getElementById('cF').textContent=nc;
+  document.getElementById('badgeF').textContent=`${nc} clusters · ${tf.toFixed(1)}ms`;
+  document.getElementById('tF').textContent=tf.toFixed(2)+'ms';
+  pipe(['raw','prep','kd','db']);draw();toast(`Fixed ε: ${nc} clusters`);
+}
+
+async function runAdaptive(){
+  if(!strokes.length){toast('Draw some strokes first!');return}
+  pipe(['raw','prep','kd']);await dl(80);
+  const cs=strokes.map(s=>ctr(prep(s.points)));
+  pipe(['raw','prep','kd','ad']);await dl(60);
+  const t0=performance.now();
+  lA=dbscan(cs,nnEps(cs,alpha,1));
+  const ta=performance.now()-t0;
+  colFlat(lA,'cA');
+  const nc=new Set(lA).size;
+  document.getElementById('cA').textContent=nc;
+  document.getElementById('badgeA').textContent=`${nc} clusters · ${ta.toFixed(1)}ms`;
+  document.getElementById('tA').textContent=ta.toFixed(2)+'ms';
+  pipe(['raw','prep','kd','db','ad']);draw();toast(`Adaptive ε: ${nc} clusters`);
+}
+
+async function runHier(){
+  if(!strokes.length){toast('Draw some strokes first!');return}
+  pipe(['raw','prep','kd']);await dl(60);
+  const ppts=strokes.map(s=>prep(s.points));
+  const cs=ppts.map(ctr);
+
+  pipe(['raw','prep','kd','h1']);await dl(60);
+  const t0=performance.now();
+
+  // L1: strokes → chars
+  const ea1=nnEps(cs,hAlpha,1);
+  const l1=dbscan(cs,ea1);
+  const charMap={};
+  l1.forEach((lbl,i)=>{(charMap[lbl]||(charMap[lbl]=[])).push(i)});
+  const charIds=Object.keys(charMap).map(Number).sort((a,b)=>a-b);
+  const charCenters=charIds.map(id=>{
+    const idxs=charMap[id];const px=idxs.map(i=>cs[i].x),py=idxs.map(i=>cs[i].y);
+    return{x:(Math.min(...px)+Math.max(...px))/2,y:(Math.min(...py)+Math.max(...py))/2};
+  });
+
+  pipe(['raw','prep','kd','h1','h2']);await dl(60);
+
+  // L2: chars → words
+  const ea2=nnEps(charCenters,hAlpha*1.0,1);
+  const l2=dbscan(charCenters,ea2);
+  const wordMap={};
+  l2.forEach((lbl,ci)=>{const charId=charIds[ci];(wordMap[lbl]||(wordMap[lbl]=[])).push(...charMap[charId]);});
+  const wordIds=Object.keys(wordMap).map(Number).sort((a,b)=>a-b);
+  const wordCenters=wordIds.map(id=>{
+    const idxs=wordMap[id];const px=idxs.map(i=>cs[i].x),py=idxs.map(i=>cs[i].y);
+    return{x:(Math.min(...px)+Math.max(...px))/2,y:(Math.min(...py)+Math.max(...py))/2};
+  });
+
+  pipe(['raw','prep','kd','h1','h2','h3']);await dl(60);
+
+  // L3: words → phrases
+  const ea3=nnEps(wordCenters,hAlpha*1.3,1);
+  const l3=dbscan(wordCenters,ea3);
+  const phraseMap={};
+  l3.forEach((lbl,wi)=>{const wordId=wordIds[wi];(phraseMap[lbl]||(phraseMap[lbl]=[])).push(...wordMap[wordId]);});
+
+  const tf=performance.now()-t0;
+
+  // Apply 3-level colors to strokes
+  strokes.forEach((s,i)=>{
+    s.cHC=PAL[l1[i]%PAL.length];
+    const charIdx=charIds.indexOf(l1[i]);
+    s.cHW=charIdx>=0?PAL[l2[charIdx]%PAL.length]:'#555';
+    const wordIdx=wordIds.indexOf(l2[charIdx]);
+    s.cHP=wordIdx>=0?PAL[l3[wordIdx]%PAL.length]:'#555';
+  });
+
+  // Store for drawing
+  hChars=charIds.map(id=>({id,idxs:charMap[id],color:PAL[id%PAL.length]}));
+  hWords=wordIds.map((id,wi)=>({id,idxs:wordMap[id],color:PAL[l2[wi]%PAL.length]}));
+  hPhrases=Object.keys(phraseMap).map((id,pi)=>({id:Number(id),idxs:phraseMap[id],color:PAL[Number(id)%PAL.length]}));
+
+  const np=hPhrases.length;
+  document.getElementById('cH').textContent=np;
+  document.getElementById('csH').textContent=`phrases · ${Object.keys(wordMap).length}w`;
+  document.getElementById('badgeH').textContent=`${np} phrases · ${Object.keys(wordMap).length} words · ${charIds.length} chars · ${tf.toFixed(1)}ms`;
+  document.getElementById('tH').textContent=tf.toFixed(2)+'ms';
+
+  buildCList(hPhrases,hWords,hChars);
+  pipe(['raw','prep','kd','h1','h2','h3']);
+  draw();toast(`Hierarchical: ${charIds.length} chars → ${wordIds.length} words → ${np} phrases`);
+}
+
+async function runAll(){
+  await runFixed();await dl(50);
+  await runAdaptive();await dl(50);
+  await runHier();
+}
+
+function colFlat(labels,key){strokes.forEach((s,i)=>{s[key]=PAL[labels[i]%PAL.length];})}
+
+// ── DRAW ──
+function grid(ctx,cv){
+  ctx.save();ctx.strokeStyle='rgba(255,255,255,.02)';ctx.lineWidth=1;
+  const gs=60*vpZ,sx=((vpX%gs)+gs)%gs,sy=((vpY%gs)+gs)%gs;
+  for(let x=sx;x<CW(cv);x+=gs){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,CH(cv));ctx.stroke();}
+  for(let y=sy;y<CH(cv);y+=gs){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(CW(cv),y);ctx.stroke();}
+  ctx.restore();
+}
+
+function drawS(ctx,pts,col,lw=2.2){
+  if(!pts||pts.length<2)return;
+  ctx.save();ctx.strokeStyle=col;ctx.lineWidth=lw*vpZ;ctx.lineCap='round';ctx.lineJoin='round';
+  ctx.beginPath();const s0=c2s(pts[0].x,pts[0].y);ctx.moveTo(s0.x,s0.y);
+  for(let i=1;i<pts.length;i++){const sp=c2s(pts[i].x,pts[i].y);ctx.lineTo(sp.x,sp.y);}
+  ctx.stroke();ctx.restore();
+}
+
+function bbox(pts){const xs=pts.map(p=>p.x),ys=pts.map(p=>p.y);return{x:Math.min(...xs),y:Math.min(...ys),w:Math.max(...xs)-Math.min(...xs),h:Math.max(...ys)-Math.min(...ys)};}
+
+function drawBox(ctx,allPts,col,pad,dash,lw=1.5,alpha=0.25){
+  if(!allPts.length)return;
+  const b=bbox(allPts);
+  const p0=c2s(b.x-pad,b.y-pad),p1=c2s(b.x+b.w+pad,b.y+b.h+pad);
+  ctx.save();ctx.strokeStyle=col;ctx.globalAlpha=alpha;ctx.lineWidth=lw;ctx.setLineDash(dash);
+  ctx.strokeRect(p0.x,p0.y,p1.x-p0.x,p1.y-p0.y);ctx.restore();
+}
+
+function drawLabel(ctx,allPts,col,txt,pad){
+  if(!allPts.length)return;
+  const b=bbox(allPts);const p0=c2s(b.x-pad,b.y-pad);
+  ctx.save();ctx.font=`500 9px 'IBM Plex Mono'`;ctx.fillStyle=col;ctx.globalAlpha=.85;
+  ctx.fillText(txt,p0.x+3,p0.y-3);ctx.restore();
+}
+
+function draw(){
+  [cvF,cvA,cvH].forEach((cv,ci)=>{
+    const ctx=[ctF,ctA,ctH][ci];
+    ctx.clearRect(0,0,CW(cv),CH(cv));
+    grid(ctx,cv);
+
+    if(ci===0){
+      // Fixed — colored by cluster, show bbox halos
+      strokes.forEach(s=>drawS(ctx,s.points,s.cF));
+      if(cur)drawS(ctx,cur.points,'#e8e6e0');
+      if(lF){
+        const g={};strokes.forEach((s,i)=>{(g[lF[i]]||(g[lF[i]]=[])).push(...s.points);});
+        Object.entries(g).forEach(([id,pts])=>{
+          drawBox(ctx,pts,PAL[id%PAL.length],10,[4,4]);
+          drawLabel(ctx,pts,PAL[id%PAL.length],`C${+id+1}`,10);
+        });
+      }
+    } else if(ci===1){
+      // Adaptive
+      strokes.forEach(s=>drawS(ctx,s.points,s.cA));
+      if(cur)drawS(ctx,cur.points,'#e8e6e0');
+      if(lA){
+        const g={};strokes.forEach((s,i)=>{(g[lA[i]]||(g[lA[i]]=[])).push(...s.points);});
+        Object.entries(g).forEach(([id,pts])=>{
+          drawBox(ctx,pts,PAL[id%PAL.length],10,[4,4]);
+          drawLabel(ctx,pts,PAL[id%PAL.length],`C${+id+1}`,10);
+        });
+      }
+    } else {
+      // Hierarchical — draw strokes colored by PHRASE (top level)
+      strokes.forEach(s=>drawS(ctx,s.points,s.cHP||'#e8e6e0'));
+      if(cur)drawS(ctx,cur.points,'#e8e6e0');
+      if(hChars&&hWords&&hPhrases){
+        // L1 char boxes — tight, thin dashes
+        hChars.forEach(ch=>{
+          const pts=ch.idxs.flatMap(i=>strokes[i].points);
+          drawBox(ctx,pts,ch.color,5,[2,3],1,0.18);
+        });
+        // L2 word boxes — medium
+        hWords.forEach(w=>{
+          const pts=w.idxs.flatMap(i=>strokes[i].points);
+          drawBox(ctx,pts,w.color,12,[5,4],1.5,0.28);
+          drawLabel(ctx,pts,w.color,'W',12);
+        });
+        // L3 phrase boxes — large, solid
+        hPhrases.forEach(ph=>{
+          const pts=ph.idxs.flatMap(i=>strokes[i].points);
+          drawBox(ctx,pts,ph.color,22,[],2,0.35);
+          drawLabel(ctx,pts,ph.color,`P${ph.id+1}`,22);
+        });
+      }
+    }
+  });
+}
+
+// ── SCATTER ──
+function addUniform(){
+  const W=CW(cvF),H=CH(cvF);
+  for(let g=0;g<5+Math.floor(Math.random()*4);g++){
+    const cx=s2c(W*(0.1+Math.random()*0.8),H*(0.1+Math.random()*0.8));
+    for(let s=0;s<2+Math.floor(Math.random()*3);s++){
+      const ox=(Math.random()-.5)*35/vpZ,oy=(Math.random()-.5)*35/vpZ,pts=[];
+      for(let p=0;p<8+Math.floor(Math.random()*8);p++)pts.push({x:cx.x+ox+(Math.random()-.5)*14/vpZ,y:cx.y+oy+(Math.random()-.5)*14/vpZ});
+      push(pts);
+    }
+  }
+  fin();
+}
+
+function addScaleVar(){
+  const W=CW(cvF),H=CH(cvF);
+  // 3 "sentences" at different scales with multiple "words"
+  const sentences=[
+    {x:0.08,y:0.20,sc:42/vpZ,nw:3},
+    {x:0.08,y:0.55,sc:15/vpZ,nw:4},
+    {x:0.60,y:0.35,sc:28/vpZ,nw:3},
+  ];
+  sentences.forEach(sen=>{
+    for(let w=0;w<sen.nw;w++){
+      const wx=sen.x*W + w*sen.sc*5.5/vpZ*vpZ;
+      const base=s2c(wx,sen.y*H);
+      for(let c=0;c<3+Math.floor(Math.random()*2);c++){
+        const cx=base.x+c*sen.sc*1.4;
+        for(let t=0;t<1+Math.floor(Math.random()*2);t++){
+          const pts=[];
+          for(let p=0;p<8+Math.floor(Math.random()*6);p++)
+            pts.push({x:cx+(Math.random()-.5)*sen.sc,y:base.y+(Math.random()-.5)*sen.sc*.7});
+          push(pts);
+        }
+      }
+    }
+  });
+  fin();toast('Scale-variant canvas — try ⬡ All Three');
+}
+
+function push(pts){strokes.push({points:pts,id:sid++,cF:'#e8e6e0',cA:'#e8e6e0',cHC:'#e8e6e0',cHW:'#e8e6e0',cHP:'#e8e6e0'});}
+function fin(){lF=lA=hChars=hWords=hPhrases=null;document.getElementById('helpEl').style.opacity='0';updCount();pipe(['raw']);draw();}
+
+function clearAll(){
+  strokes=[];lF=lA=hChars=hWords=hPhrases=null;cur=null;
+  document.getElementById('helpEl').style.opacity='1';
+  ['cF','cA','cH','tF','tA','tH'].forEach(id=>document.getElementById(id).textContent='—');
+  ['badgeF','badgeA','badgeH'].forEach(id=>document.getElementById(id).textContent='—');
+  document.getElementById('csH').textContent='phrases';
+  document.getElementById('mS').textContent='0';document.getElementById('nStr').textContent='0';
+  document.getElementById('cList').innerHTML='<div style="font-family:var(--mono);font-size:10px;color:var(--muted);padding:8px;text-align:center">Run Hierarchical first</div>';
+  pipe([]);draw();
+}
+
+function buildCList(phrases,words,chars){
+  const list=document.getElementById('cList');
+  list.innerHTML=phrases.map(ph=>{
+    const wc=words.filter(w=>w.idxs.some(i=>ph.idxs.includes(i))).length;
+    const cc=chars.filter(c=>c.idxs.some(i=>ph.idxs.includes(i))).length;
+    return`<div class="ci">
+      <div class="csw" style="background:${ph.color}"></div>
+      <span>Phrase ${ph.id+1}</span>
+      <span class="cct">${wc}w · ${cc}c</span>
+    </div>`;
+  }).join('');
+}
+
+// ── CONTROLS ──
+function setMode(m){
+  mode=m;document.getElementById('bDraw').classList.toggle('on',m==='draw');document.getElementById('bPan').classList.toggle('on',m==='pan');
+  const b=document.getElementById('mBadge');b.className='mb '+m;b.textContent=m==='draw'?'Draw Mode':'Pan Mode';
+  [cvF,cvA,cvH].forEach(c=>c.style.cursor=m==='pan'?'grab':'crosshair');
+}
+function updEps(){eps=+document.getElementById('sEps').value;document.getElementById('vEps').textContent=eps+'px';document.getElementById('mE').textContent=eps+'px';}
+function updAlpha(){alpha=+document.getElementById('sAlpha').value/10;document.getElementById('vAlpha').textContent=alpha.toFixed(1);document.getElementById('mA').textContent=alpha.toFixed(1);}
+function updH(){hAlpha=+document.getElementById('sH1').value/10;document.getElementById('vH').textContent=hAlpha.toFixed(1);document.getElementById('mH').textContent=`${hAlpha.toFixed(1)}/${hAlpha.toFixed(1)}/${(hAlpha*1.3).toFixed(1)}`;}
+function updCount(){const n=strokes.length;document.getElementById('nStr').textContent=n;document.getElementById('mS').textContent=n;}
+
+// ── PIPE ──
+const PM={raw:'pR',prep:'pP',kd:'pK',db:'pD',ad:'pAd',h1:'pH1',h2:'pH2',h3:'pH3'};
+const ord=['raw','prep','kd','db','ad','h1','h2','h3'];
+const hMap={h1:'a3',h2:'a3',h3:'a3'};
+function pipe(active){
+  ord.forEach(k=>{
+    const el=document.getElementById(PM[k]);el.className='ps_';
+    if(!active.includes(k))return;
+    const isLast=k===active[active.length-1];
+    if(isLast){if(['h1','h2','h3'].includes(k))el.classList.add('a3');else if(k==='ad')el.classList.add('a2');else el.classList.add('a1');}
+    else el.classList.add('done');
+  });
+}
+
+function dl(ms){return new Promise(r=>setTimeout(r,ms))}
+function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),2200)}
+
+resize();updEps();updAlpha();updH();
+</script>
+</body>
+</html>
