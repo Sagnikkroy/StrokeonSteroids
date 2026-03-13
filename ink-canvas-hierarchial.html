@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>InkCluster — Hierarchical Ink Recognition</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<script src="https://unpkg.com/onnxruntime-web@1.16.3/dist/ort.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -288,13 +287,7 @@ canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
     <button class="btn clr" onclick="clearAll()">⊘ Clear</button>
   </div>
   <div class="sep"></div>
-  <div class="tg">
-    <button class="btn" id="bLoadModel" onclick="document.getElementById('modelFileIn').click()" style="border-color:#a29bfe;color:#a29bfe">⬆ Load Model</button>
-    <input type="file" id="modelFileIn" accept=".onnx" style="display:none" onchange="loadOnnxFile(this)">
-    <button class="btn" id="bLoadVocab" onclick="document.getElementById('vocabFileIn').click()" style="border-color:#a29bfe;color:#a29bfe">⬆ Load Vocab</button>
-    <input type="file" id="vocabFileIn" accept=".json" style="display:none" onchange="loadVocabFile(this)">
-  </div>
-  <div class="chip" id="chipModel">Model <span>not loaded</span></div>
+  <div class="chip" id="chipModel">Server <span>not connected</span></div>
   <div class="sep"></div>
   <div class="ctrl">
     <span class="clabel">α</span>
@@ -408,64 +401,40 @@ const PAL=['#64ffda','#ff9f43','#a29bfe','#ffd166','#ff6b9d','#4ecdc4','#a8ff78'
 const C1='#64ffda',C2='#ff9f43',C3='#a29bfe';
 
 // ── MODEL STATE ──
-let onnxSession = null;
-let vocab = null;
-let blankIdx = null;
-// Recognised text per cluster id
-let charText  = {};  // charId  → string
-let wordText  = {};  // wordIdx → string
-let phraseText= {};  // phraseId→ string
+const SERVER = 'http://localhost:5001';
+let serverReady = false;
+let charText   = {};
+let wordText   = {};
+let phraseText = {};
 
-// ── FILE LOADERS ──
-async function loadOnnxFile(input){
-  const file = input.files[0];
-  if(!file) return;
-  toast('Loading model...');
+// ── CHECK SERVER ON LOAD ──
+async function checkServer(){
   try {
-    // Point WASM files to CDN — required when running from file://
-    // Disable threads — avoids crossOriginIsolated requirement
-    ort.env.wasm.numThreads = 1;
-    ort.env.wasm.simd = true;
-    ort.env.wasm.wasmPaths = 'https://unpkg.com/onnxruntime-web@1.16.3/dist/';
-
-    const buf = await file.arrayBuffer();
-    onnxSession = await ort.InferenceSession.create(buf, {
-      executionProviders: ['wasm'],
-      graphOptimizationLevel: 'all',
-    });
-    console.log('ONNX session inputs:', onnxSession.inputNames);
-    console.log('ONNX session outputs:', onnxSession.outputNames);
-    updateModelChip();
-    toast('Model loaded ✓');
+    const r = await fetch(`${SERVER}/health`, {signal: AbortSignal.timeout(2000)});
+    const d = await r.json();
+    if(d.model_loaded){
+      serverReady = true;
+      const chip = document.getElementById('chipModel');
+      chip.className = 'chip model-ok';
+      chip.innerHTML = `Model <span>ready</span> · vocab ${d.vocab_size}`;
+      toast('Model server connected ✓');
+    } else {
+      setServerChip('server up, model not loaded');
+    }
   } catch(e){
-    toast('Failed: ' + e.message);
-    console.error('ONNX load error:', e);
+    setServerChip('not connected');
   }
 }
 
-async function loadVocabFile(input){
-  const file = input.files[0];
-  if(!file) return;
-  const text = await file.text();
-  const data = JSON.parse(text);
-  vocab     = data.vocab;
-  blankIdx  = data.blank_idx;
-  updateModelChip();
-  toast(`Vocab loaded ✓  (${vocab.length} chars)`);
-}
-
-function updateModelChip(){
+function setServerChip(msg){
   const chip = document.getElementById('chipModel');
-  const hasModel = !!onnxSession;
-  const hasVocab = !!vocab;
-  if(hasModel && hasVocab){
-    chip.className = 'chip model-ok';
-    chip.innerHTML = 'Model <span>ready</span>';
-  } else {
-    chip.className = 'chip';
-    chip.innerHTML = `Model <span>${hasModel?'✓':'✗'} onnx</span> <span>${hasVocab?'✓':'✗'} vocab</span>`;
-  }
+  chip.className = 'chip';
+  chip.innerHTML = `Server <span>${msg}</span>`;
 }
+
+// Poll every 3s until connected
+setInterval(()=>{ if(!serverReady) checkServer(); }, 3000);
+setTimeout(checkServer, 500);
 
 // ── STATE ──
 let strokes=[],cur=null,drawing=false,mode='draw';
@@ -573,136 +542,69 @@ function dbscan(cs,ea){
   return L;
 }
 
-// ── FEATURE EXTRACTION (mirrors Python training code) ──
-const MAX_PTS_MODEL = 64;
-const MAX_STROKES_MODEL = 32;
-
-function normaliseStrokes(strokePtsArray){
-  // strokePtsArray: array of [{x,y}, ...] arrays
-  let xMin=Infinity,xMax=-Infinity,yMin=Infinity,yMax=-Infinity;
-  strokePtsArray.forEach(pts=>pts.forEach(p=>{
-    if(p.x<xMin)xMin=p.x; if(p.x>xMax)xMax=p.x;
-    if(p.y<yMin)yMin=p.y; if(p.y>yMax)yMax=p.y;
-  }));
-  const h = Math.max(yMax-yMin, 1e-6);
-  const cx=(xMin+xMax)/2, cy=(yMin+yMax)/2;
-  return strokePtsArray.map(pts=>pts.map(p=>({x:(p.x-cx)/h, y:(p.y-cy)/h})));
-}
-
-function strokesToFeatures(strokePtsArray){
-  // Returns Float32Array [nStrokes, MAX_PTS_MODEL, 5] and mask [nStrokes, MAX_PTS_MODEL]
-  const S = Math.min(strokePtsArray.length, MAX_STROKES_MODEL);
-  const P = MAX_PTS_MODEL;
-  const normed = normaliseStrokes(strokePtsArray.slice(0, S));
-
-  const features = new Float32Array(S * P * 5);
-  const mask     = new Float32Array(S * P);
-
-  normed.forEach((pts, si)=>{
-    const n = Math.min(pts.length, P);
-    for(let pi=0; pi<n; pi++){
-      const dx = pi===0 ? 0 : pts[pi].x - pts[pi-1].x;
-      const dy = pi===0 ? 0 : pts[pi].y - pts[pi-1].y;
-      const angle = Math.atan2(dy, dx);
-      const penLift = pi===n-1 ? 1.0 : 0.0;
-      const base = (si*P + pi)*5;
-      features[base+0] = dx;
-      features[base+1] = dy;
-      features[base+2] = Math.sin(angle);
-      features[base+3] = Math.cos(angle);
-      features[base+4] = penLift;
-      mask[si*P + pi] = 1.0;
-    }
-  });
-  return {features, mask, nStrokes: S};
-}
-
-// ── CTC GREEDY DECODE ──
-function ctcGreedyDecode(logProbsFlat, T, vocabSize){
-  // logProbsFlat: Float32Array [T * vocabSize]
-  const indices = [];
-  for(let t=0; t<T; t++){
-    let best=-Infinity, bestIdx=0;
-    for(let v=0; v<vocabSize; v++){
-      const val = logProbsFlat[t*vocabSize + v];
-      if(val > best){best=val; bestIdx=v;}
-    }
-    indices.push(bestIdx);
-  }
-  // Collapse repeats then remove blanks
-  const collapsed = [];
-  let prev = -1;
-  for(const idx of indices){
-    if(idx !== prev){ collapsed.push(idx); prev=idx; }
-  }
-  return collapsed
-    .filter(i => i !== blankIdx && i !== 0)  // 0 = PAD
-    .map(i => vocab[i] || '')
-    .join('');
-}
-
-// ── RUN INFERENCE ON ONE CLUSTER ──
+// ── RECOGNITION VIA LOCAL SERVER ──
 async function recogniseCluster(strokePtsArray){
-  if(!onnxSession || !vocab) return '?';
-  if(!strokePtsArray || strokePtsArray.length === 0) return '';
-
+  if(!serverReady) return '';
+  if(!strokePtsArray || !strokePtsArray.length) return '';
   try {
-    const {features, mask, nStrokes} = strokesToFeatures(strokePtsArray);
-    const S = nStrokes;
-    const P = MAX_PTS_MODEL;
-
-    const featTensor = new ort.Tensor('float32', features, [1, S, P, 5]);
-    const maskTensor = new ort.Tensor('float32', mask,     [1, S, P]);
-    // n_strokes must be int64 — use BigInt64Array
-    const nsTensor   = new ort.Tensor('int64',
-      BigInt64Array.from([BigInt(S)]), [1]);
-
-    // Use actual input names from the session (logged to console on load)
-    const inputNames = onnxSession.inputNames;
-    const feeds = {};
-    feeds[inputNames[0]] = featTensor;   // features
-    feeds[inputNames[1]] = maskTensor;   // stroke_mask
-    feeds[inputNames[2]] = nsTensor;     // n_strokes
-
-    const results  = await onnxSession.run(feeds);
-    const outName  = onnxSession.outputNames[0];
-    const logProbs = results[outName].data;  // Float32Array [1 * S * vocab]
-    const V = vocab.length;
-    const sliced = logProbs.slice(0, S * V);
-    return ctcGreedyDecode(sliced, S, V);
+    const r = await fetch(`${SERVER}/recognise`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        strokes: strokePtsArray.map(pts => pts.map(p=>[p.x, p.y]))
+      })
+    });
+    const d = await r.json();
+    return d.text || '';
   } catch(e){
-    console.warn('Inference error:', e);
-    return '?';
+    console.warn('recognise error:', e);
+    return '';
   }
 }
 
-// ── RUN RECOGNITION ON ALL CLUSTERS AFTER CLUSTERING ──
 async function recogniseAll(){
-  if(!onnxSession || !vocab){
-    toast('Load model + vocab first!');
-    return;
-  }
+  if(!serverReady){ toast('Start server first — see instructions'); return; }
   charText={}; wordText={}; phraseText={};
   toast('Recognising...');
 
-  // Characters
-  for(const ch of hC){
-    const pts = ch.idxs.map(i => strokes[i].points);
-    charText[ch.id] = await recogniseCluster(pts);
-  }
-  // Words (flat list of all strokes in this word)
-  for(let wi=0; wi<hW.length; wi++){
-    const pts = hW[wi].idxs.map(i => strokes[i].points);
-    wordText[wi] = await recogniseCluster(pts);
-  }
-  // Phrases
-  for(const ph of hP){
-    const pts = ph.idxs.map(i => strokes[i].points);
-    phraseText[ph.id] = await recogniseCluster(pts);
+  // Build phrase→word mapping
+  const phraseWordIds = {};
+  hP.forEach(ph=>{
+    const wids = hW
+      .map((w,wi)=>({w,wi}))
+      .filter(({w})=>w.idxs.some(i=>ph.idxs.includes(i)))
+      .map(({wi})=>`w${wi}`);
+    phraseWordIds[`p${ph.id}`] = wids;
+  });
+
+  const payload = {
+    words: hW.map((w,wi)=>({
+      id: `w${wi}`,
+      strokes: w.idxs.map(i=>strokes[i].points.map(p=>[p.x,p.y]))
+    })),
+    chars: hC.map(ch=>({
+      id: `c${ch.id}`,
+      strokes: ch.idxs.map(i=>strokes[i].points.map(p=>[p.x,p.y]))
+    })),
+    phrase_word_ids: phraseWordIds,
+  };
+
+  try {
+    const r = await fetch(`${SERVER}/recognise_batch`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const d = await r.json();
+    const res = d.results || {};
+    hW.forEach((_,wi)  =>{ wordText[wi]    = res[`w${wi}`]   || ''; });
+    hC.forEach(ch      =>{ charText[ch.id] = res[`c${ch.id}`]|| ''; });
+    hP.forEach(ph      =>{ phraseText[ph.id]= res[`p${ph.id}`]|| ''; });
+  } catch(e){
+    console.warn('batch recognise error:', e);
   }
 
   draw();
-  // Update phrase list with recognised text
   buildPList();
   toast('Recognition complete ✓');
 }
@@ -771,8 +673,8 @@ async function runHier(){
   draw();
   toast(`${hC.length} chars → ${hW.length} words → ${hP.length} phrases · ${tf.toFixed(1)}ms`);
 
-  // Auto-run recognition if model is loaded
-  if(onnxSession && vocab) await recogniseAll();
+  // Auto-run recognition if server is connected
+  if(serverReady) await recogniseAll();
 }
 
 function buildPList(){
