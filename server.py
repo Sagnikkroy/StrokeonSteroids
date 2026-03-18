@@ -270,27 +270,33 @@ def recognise_batch():
 def load_model(pt_path, vocab_path):
     global model, vocab, blank_idx
 
-    print(f'Loading vocab: {vocab_path}')
-    with open(vocab_path) as f:
-        data      = json.load(f)
-        vocab     = data['vocab']
-        blank_idx = data['blank_idx']
-    print(f'  Vocab size: {len(vocab)}, blank_idx: {blank_idx}')
-
     print(f'Loading model: {pt_path}')
     ckpt = torch.load(pt_path, map_location='cpu')
     sd   = ckpt['model_state']
 
-    # ── Auto-detect architecture from checkpoint shapes ──
+    # ── Always get vocab from checkpoint first, fall back to JSON ──
+    if 'vocab' in ckpt:
+        vocab     = ckpt['vocab']
+        blank_idx = ckpt['blank_idx']
+        print(f'  Vocab from checkpoint: {len(vocab)} chars')
+    else:
+        print(f'Loading vocab: {vocab_path}')
+        with open(vocab_path, encoding='utf-8') as f:
+            data      = json.load(f)
+            vocab     = data['vocab']
+            blank_idx = data['blank_idx']
+        print(f'  Vocab from JSON: {len(vocab)} chars')
+
+    # ── Auto-detect architecture directly from checkpoint shapes ──
     d_model        = sd['inp_proj.weight'].shape[0]
+    vocab_size     = sd['ctc_head.weight'].shape[0]  # ground truth from weights
     n_stroke_layers= sum(1 for k in sd if k.startswith('stroke_enc.layers.') and k.endswith('.norm1.weight'))
     n_word_layers  = sum(1 for k in sd if k.startswith('word_enc.layers.')   and k.endswith('.norm1.weight'))
-    n_stroke_heads = max(1, d_model // 64)   # standard: 1 head per 64 dims
-    n_word_heads   = max(1, d_model // 64)
-    vocab_size     = len(vocab)
+    n_stroke_heads = max(1, d_model // 16)
+    n_word_heads   = max(1, d_model // 16)
 
-    print(f'  Detected: d_model={d_model}, stroke_layers={n_stroke_layers}, '
-          f'word_layers={n_word_layers}, heads={n_stroke_heads}')
+    print(f'  Detected: d_model={d_model}, vocab={vocab_size}, '
+          f'stroke_layers={n_stroke_layers}, word_layers={n_word_layers}')
 
     model = InkTransformerV3(
         vocab_size      = vocab_size,

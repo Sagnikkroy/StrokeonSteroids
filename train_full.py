@@ -40,6 +40,8 @@ parser.add_argument('--batch',     type=int, default=32,    help='Batch size')
 parser.add_argument('--lr',        type=float, default=3e-4,help='Learning rate')
 parser.add_argument('--d_model',   type=int, default=64,    help='Model dimension')
 parser.add_argument('--workers',   type=int, default=0,     help='DataLoader workers (0 = main process, safest on Windows)')
+parser.add_argument('--cached',      action='store_true',     help='Use preprocessed cache file (much faster)')
+parser.add_argument('--max_samples', type=int, default=0,     help='Limit dataset size (0=use all). e.g. 50000')
 parser.add_argument('--excerpt',   action='store_true',     help='Use excerpt instead of full dataset (for testing)')
 parser.add_argument('--resume',    action='store_true',     help='Resume from last checkpoint if exists')
 args = parser.parse_args()
@@ -58,6 +60,8 @@ LAST_PT    = os.path.join(CKPT_DIR, 'ink_model_last.pt')
 VOCAB_JSON = os.path.join(CKPT_DIR, 'ink_vocab.json')
 TGZFILE    = os.path.join(BASE_DIR, 'mathwriting.tgz')
 LOG_FILE   = os.path.join(LOG_DIR,  'training_log.txt')
+CACHE_FILE = os.path.join(BASE_DIR, 'cache', 'dataset.npz')
+CACHE_LABELS = CACHE_FILE.replace('.npz', '_labels.json')
 
 for d in [DATA_DIR, CKPT_DIR, LOG_DIR]:
     os.makedirs(d, exist_ok=True)
@@ -183,7 +187,7 @@ valid_files, all_labels = [], []
 
 if os.path.exists(VOCAB_JSON):
     print(f'Vocab already exists: {VOCAB_JSON} — loading...')
-    with open(VOCAB_JSON) as f:
+    with open(VOCAB_JSON, encoding='utf-8') as f:
         vdata = json.load(f)
     VOCAB      = vdata['vocab']
     BLANK_IDX  = vdata['blank_idx']
@@ -193,13 +197,16 @@ if os.path.exists(VOCAB_JSON):
     idx2char   = {i: c for i, c in enumerate(VOCAB)}
     print(f'Vocab loaded: {VOCAB_SIZE} chars')
 
-    # Still need valid_files — scan without parsing labels
-    print('Scanning for valid files...')
-    for fp in tqdm(all_inkml, desc='Scanning'):
-        s, l = parse_inkml(fp)
-        if len(s) >= 1 and len(l) >= 1:
-            valid_files.append(fp)
-    print(f'Valid samples: {len(valid_files)}')
+    # Only scan files if NOT using cache
+    if not args.cached:
+        print('Scanning for valid files...')
+        for fp in tqdm(all_inkml, desc='Scanning'):
+            s, l = parse_inkml(fp)
+            if len(s) >= 1 and len(l) >= 1:
+                valid_files.append(fp)
+        print(f'Valid samples: {len(valid_files)}')
+    else:
+        print('Cached mode — skipping file scan.')
 
 else:
     for fp in tqdm(all_inkml, desc='Scanning labels'):
@@ -217,9 +224,8 @@ else:
     char2idx   = {c: i for i, c in enumerate(VOCAB)}
     idx2char   = {i: c for i, c in enumerate(VOCAB)}
     print(f'Vocabulary size: {VOCAB_SIZE}')
-    print(f'Sample chars: {all_chars[:30]}')
 
-    with open(VOCAB_JSON, 'w') as f:
+    with open(VOCAB_JSON, 'w', encoding='utf-8') as f:
         json.dump({'vocab': VOCAB, 'blank_idx': BLANK_IDX}, f)
     print(f'Vocab saved: {VOCAB_JSON}')
 
@@ -296,6 +302,34 @@ class InkDataset(Dataset):
             'n_strokes':   len(strokes),
             'label_len':   len(label_enc),
             'label_str':   label,
+        }
+
+class CachedInkDataset(Dataset):
+    """Reads from preprocessed memmap — no per-sample file I/O, very fast."""
+    def __init__(self, indices, features, masks, n_strokes, label_enc, label_len, label_strings):
+        self.idx           = indices
+        self.features      = features
+        self.masks         = masks
+        self.n_strokes     = n_strokes
+        self.label_enc     = label_enc
+        self.label_len     = label_len
+        self.label_strings = label_strings
+
+    def __len__(self):
+        return len(self.idx)
+
+    def __getitem__(self, i):
+        j  = self.idx[i]
+        ns = int(self.n_strokes[j])
+        ll = int(self.label_len[j])
+        return {
+            # Slice to actual stroke count + copy to make writable
+            'features':    torch.FloatTensor(self.features[j, :ns].copy()),
+            'stroke_mask': torch.FloatTensor(self.masks[j,    :ns].copy()),
+            'label':       torch.LongTensor(self.label_enc[j, :ll].copy()),
+            'n_strokes':   ns,
+            'label_len':   ll,
+            'label_str':   self.label_strings[j],
         }
 
 def collate_fn(batch):
@@ -386,10 +420,43 @@ class InkTransformerV3(nn.Module):
         return torch.log_softmax(out, dim=-1)
 
 if __name__ == '__main__':
-    random.shuffle(valid_files)
-    split      = int(0.9 * len(valid_files))
-    train_ds   = InkDataset(valid_files[:split])
-    val_ds     = InkDataset(valid_files[split:])
+    if args.cached:
+        cache_dir = os.path.join(BASE_DIR, 'cache')
+        feat_path = os.path.join(cache_dir, 'features.npy')
+        mask_path = os.path.join(cache_dir, 'masks.npy')
+        ns_path   = os.path.join(cache_dir, 'nstrokes.npy')
+        lenc_path = os.path.join(cache_dir, 'labelenc.npy')
+        llen_path = os.path.join(cache_dir, 'labellen.npy')
+        lbls_path = os.path.join(cache_dir, 'labels.json')
+
+        if not os.path.exists(feat_path):
+            print(f'ERROR: Cache not found. Run: python preprocess.py --hdd {HDD}')
+            sys.exit(1)
+
+        print('Loading cache (memory-mapped)...')
+        feats = np.memmap(feat_path, dtype='float32', mode='r').reshape(-1, MAX_STROKES, MAX_PTS, 5)
+        masks = np.memmap(mask_path, dtype='float32', mode='r').reshape(-1, MAX_STROKES, MAX_PTS)
+        ns    = np.memmap(ns_path,   dtype='int32',   mode='r')
+        lenc  = np.memmap(lenc_path, dtype='int32',   mode='r').reshape(-1, MAX_LABEL)
+        llen  = np.memmap(llen_path, dtype='int32',   mode='r')
+        with open(lbls_path, 'r', encoding='utf-8') as f:
+            label_strings = json.load(f)
+
+        N          = len(llen)
+        valid_idx  = [i for i in range(N) if llen[i] > 0]
+        random.shuffle(valid_idx)
+        if args.max_samples > 0:
+            valid_idx = valid_idx[:args.max_samples]
+            print(f'Limiting to {args.max_samples:,} samples')
+        split      = int(0.9 * len(valid_idx))
+        train_ds   = CachedInkDataset(valid_idx[:split], feats, masks, ns, lenc, llen, label_strings)
+        val_ds     = CachedInkDataset(valid_idx[split:], feats, masks, ns, lenc, llen, label_strings)
+        print(f'Cache loaded: {len(valid_idx):,} valid samples')
+    else:
+        random.shuffle(valid_files)
+        split    = int(0.9 * len(valid_files))
+        train_ds = InkDataset(valid_files[:split])
+        val_ds   = InkDataset(valid_files[split:])
     train_loader = DataLoader(train_ds, batch_size=args.batch, shuffle=True,
                               collate_fn=collate_fn, num_workers=args.workers,
                               pin_memory=torch.cuda.is_available())
@@ -493,7 +560,7 @@ if __name__ == '__main__':
 
     def log(msg):
         print(msg)
-        with open(LOG_FILE, 'a') as f:
+        with open(LOG_FILE, 'a', encoding='utf-8') as f:
             f.write(msg + '\n')
 
     # ── Main training loop ──
@@ -531,7 +598,7 @@ if __name__ == '__main__':
                 'epoch': epoch, 'model_state': model.state_dict(),
                 'vocab': VOCAB, 'blank_idx': BLANK_IDX, 'val_cer': val_cer,
             }, BEST_PT)
-            saved = ' ← BEST SAVED'
+            saved = ' << BEST SAVED'
 
         log(f'Epoch {epoch:3d}/{args.epochs} | loss={train_loss:.4f} | '
             f'val_loss={val_loss:.4f} | CER={val_cer:.4f} | {elapsed:.0f}s{saved}')
