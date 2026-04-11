@@ -516,7 +516,7 @@ let msReady = true;
 function updateModelChip2(){
   const chip = document.getElementById('chipModel');
   chip.className = 'chip model-ok';
-  chip.innerHTML = 'MyScript <span>ready</span>';
+  chip.innerHTML = 'Model <span>ready</span>';
 }
 updateModelChip2();
 
@@ -561,7 +561,7 @@ async function recogniseClusterMS(strokePtsArrays){
 
 async function recogniseAll(){
   charText={}; wordText={}; phraseText={};
-  toast('Recognising with MyScript...');
+  toast('Recognising...');
 
   for(let wi=0; wi<hW.length; wi++){
     const pts = hW[wi].idxs.map(i=>strokes[i].points);
